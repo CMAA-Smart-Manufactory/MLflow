@@ -1,0 +1,68 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+      POSTGRES_DB: mlflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    restart: always
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    volumes:
+      - minio_data:/data
+
+  create-bucket:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      mc alias set minio http://minio:9000 minio minio123;
+      mc mb minio/mlflow;
+      exit 0;
+      "
+
+  mlflow:
+    build: .
+    restart: always
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      BACKEND_STORE_URI: postgresql://mlflow:mlflow@postgres:5432/mlflow
+      ARTIFACT_ROOT: s3://mlflow/
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    restart: always
+    depends_on:
+      - mlflow
+    ports:
+      - "5050:4180"
+    environment:
+      OAUTH2_PROXY_PROVIDER: google
+      OAUTH2_PROXY_CLIENT_ID: SEU_CLIENT_ID
+      OAUTH2_PROXY_CLIENT_SECRET: SEU_CLIENT_SECRET
+      OAUTH2_PROXY_COOKIE_SECRET: SUA_CHAVE_BASE64_32
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_UPSTREAMS: http://mlflow:5000
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_REDIRECT_URL: http://SEU_DOMINIO:5050/oauth2/callback
+
+volumes:
+  postgres_data:
+  minio_data:
